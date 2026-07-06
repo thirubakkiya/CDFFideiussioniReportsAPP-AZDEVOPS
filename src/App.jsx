@@ -2,9 +2,8 @@ import { useMemo, useState } from 'react';
 import ActionRow from './components/ActionRow';
 import AppFooter from './components/AppFooter';
 import FilterPanel from './components/FilterPanel';
-import LeftNav from './components/LeftNav';
 import ResultPanel from './components/ResultPanel';
-import SubheaderRow from './components/SubheaderRow';
+import UpdatedLayout from './components/UpdatedLayout';
 
 const NODE_IDS = [
   '75-3026',
@@ -255,48 +254,38 @@ export default function App() {
   const goToNextResultPage = () => setPageIndex((previous) => Math.min(previous + 1, totalPages));
 
   return (
-    <div className="cdf-page">
-      <SubheaderRow
-        reportLabel={currentPage.reportLabel}
-        designName={currentPage.designName}
-        date="29/08/2025"
-      />
-
-      <div className="main-shell">
-        <LeftNav
-          reportLinks={REPORT_LINKS}
-          currentReportNumber={currentPage.reportNumber}
-          onReportLinkClick={handleReportLinkClick}
+    <UpdatedLayout
+      reportLinks={REPORT_LINKS}
+      currentReportNumber={currentPage.reportNumber}
+      onReportLinkClick={handleReportLinkClick}
+    >
+      <section className="content-area" style={{ padding: '12px' }}>
+        <FilterPanel
+          heading={currentPage.heading}
+          date={currentPage.date}
+          filterLabel={currentPage.filterLabel}
+          filterOptions={currentPage.filterOptions}
+          selectedType={selectedType}
+          onTypeChange={handleTypeChange}
         />
 
-        <section className="content-area">
-          <FilterPanel
-            heading={currentPage.heading}
-            date={currentPage.date}
-            filterLabel={currentPage.filterLabel}
-            filterOptions={currentPage.filterOptions}
-            selectedType={selectedType}
-            onTypeChange={handleTypeChange}
-          />
+        <ActionRow secondaryLabel={currentPage.buttonSecondary} primaryLabel={currentPage.buttonPrimary} />
 
-          <ActionRow secondaryLabel={currentPage.buttonSecondary} primaryLabel={currentPage.buttonPrimary} />
-
-          <ResultPanel
-            sectionTitle={currentPage.sectionTitle}
-            visibleRows={visibleRows}
-            normalizedPage={normalizedPage}
-            totalPages={totalPages}
-            filteredRowsCount={filteredRows.length}
-            rowPaginationWindow={rowPaginationWindow}
-            onPrevious={goToPreviousResultPage}
-            onNext={goToNextResultPage}
-            onPageSelect={setPageIndex}
-          />
-        </section>
-      </div>
+        <ResultPanel
+          sectionTitle={currentPage.sectionTitle}
+          visibleRows={visibleRows}
+          normalizedPage={normalizedPage}
+          totalPages={totalPages}
+          filteredRowsCount={filteredRows.length}
+          rowPaginationWindow={rowPaginationWindow}
+          onPrevious={goToPreviousResultPage}
+          onNext={goToNextResultPage}
+          onPageSelect={setPageIndex}
+        />
+      </section>
 
       <AppFooter reportLabel={currentPage.reportLabel} designName={currentPage.designName} />
-    </div>
+    </UpdatedLayout>
   );
 }
 
