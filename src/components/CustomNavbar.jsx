@@ -123,7 +123,7 @@ export default function CustomNavbar({ reportLinks = [], currentReportNumber, on
           </div>
           <div style={{ marginLeft: '16px' }} >
             <span style={{ fontWeight: 700, fontSize: '16px', color: '#032DAD' }}>
-              Crediti di Firma — Fideiussioni Reports
+              Crediti di Firma - Fideiussioni Reports
             </span>
           </div>
         </Toolbar>
