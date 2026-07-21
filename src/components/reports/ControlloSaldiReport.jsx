@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Box,
   TextField,
@@ -23,8 +23,9 @@ import SearchIcon from '@mui/icons-material/Search';
 import ReportsService from '../../services/ReportsService';
 import ExportService from '../../services/ExportService';
 
-const ROWS_PER_PAGE = 10;
-const CONTROLLO_SALDI_TYPES = ['TUTTI', 'SCOSTAMENTO', 'QUADRATO', 'DA VERIFICARE'];
+const SERVER_PAGE_SIZE = 30;
+const TIPO_CONTROLLO_PARENT_KEY = 'TIPO_CONTROLLO';
+const ALL_CONTROLLO_SALDI_TYPE = 'TC_TUTTI_CONTI';
 
 const COLUMNS = [
   { header: 'Data Calcolo', key: 'dataCalcolo', width: '15%' },
@@ -38,67 +39,146 @@ const COLUMNS = [
 
 export default function ControlloSaldiReport({ idBanca }) {
   const [loading, setLoading] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [data, setData] = useState([]);
-  const [selectedType, setSelectedType] = useState('TUTTI');
-  const [contoAddebito, setContoAddebito] = useState('');
+  const [totalCount, setTotalCount] = useState(0);
+  const [typeOptions, setTypeOptions] = useState([]);
+  const [selectedType, setSelectedType] = useState(ALL_CONTROLLO_SALDI_TYPE);
   const [executionDate, setExecutionDate] = useState('');
-  const [pageIndex, setPageIndex] = useState(1);
+  const [pageNumber, setPageNumber] = useState(0);
+  const [searchParams, setSearchParams] = useState(null);
 
-  // Filter data based on selected type
-  const filteredData = useMemo(() => {
-    if (selectedType === 'TUTTI') {
-      return data;
-    }
-    return data.filter(row => row.stato === selectedType);
-  }, [data, selectedType]);
+  const resolvedBancaId = Number(idBanca || localStorage.getItem('idBanca') || '1');
+  const totalPages = totalCount > 0 ? Math.ceil(totalCount / SERVER_PAGE_SIZE) : 0;
 
-  const totalPages = Math.max(Math.ceil(filteredData.length / ROWS_PER_PAGE), 1);
-  const visibleRows = useMemo(() => {
-    const start = (pageIndex - 1) * ROWS_PER_PAGE;
-    return filteredData.slice(start, start + ROWS_PER_PAGE);
-  }, [filteredData, pageIndex]);
+  const normalizeChildParamOption = useCallback((item) => ({
+    key: String(item?.key || '').trim(),
+    value: String(item?.value || '').trim(),
+    visible: String(item?.visible || 'Y').toUpperCase(),
+    defaultValue: String(item?.defaultValue || 'N').toUpperCase(),
+  }), []);
+
+  useEffect(() => {
+    const loadControlloTypes = async () => {
+      setOptionsLoading(true);
+
+      try {
+        const childParams = await ReportsService.getChildParams({
+          parentKey: TIPO_CONTROLLO_PARENT_KEY,
+          idBanca: resolvedBancaId,
+        });
+
+        const normalizedOptions = childParams
+          .map(normalizeChildParamOption)
+          .filter((item) => item.visible !== 'N' && item.key && item.value);
+
+        setTypeOptions(normalizedOptions);
+
+        if (normalizedOptions.length === 0) {
+          setSelectedType(ALL_CONTROLLO_SALDI_TYPE);
+          setError('No Tipo Controllo options available from param collection');
+          return;
+        }
+
+        setError(null);
+        setSelectedType(ALL_CONTROLLO_SALDI_TYPE);
+      } catch (err) {
+        setTypeOptions([]);
+        setSelectedType(ALL_CONTROLLO_SALDI_TYPE);
+        setError(err.message || 'Failed to load Tipo Controllo options');
+      } finally {
+        setOptionsLoading(false);
+      }
+    };
+
+    loadControlloTypes();
+  }, [normalizeChildParamOption, resolvedBancaId]);
 
   const handleSearch = useCallback(async () => {
-    if (!contoAddebito || !executionDate) {
+    if (!executionDate) {
       setError('Please fill all required fields');
       return;
     }
 
     setLoading(true);
     setError(null);
-    setPageIndex(1);
+    setPageNumber(0);
 
     try {
       const request = {
-        bancaId: idBanca || localStorage.getItem('idBanca'),
-        contoAddebito: contoAddebito,
+        bancaId: resolvedBancaId,
         executionDate: executionDate,
-        stato: selectedType !== 'TUTTI' ? selectedType : null,
+        tipoControllo: selectedType !== ALL_CONTROLLO_SALDI_TYPE ? selectedType : null,
+        pageNumber: 0,
+        pageSize: SERVER_PAGE_SIZE,
       };
 
-      const result = await ReportsService.getReportContabile(request);
-      setData(result || []);
+      setSearchParams(request);
+      const result = await ReportsService.getControlloSaldi(request);
+      
+      // Handle paginated response
+      if (result && result.data) {
+        setData(result.data || []);
+        setTotalCount(result.totalCount || 0);
+      } else {
+        setData([]);
+        setTotalCount(0);
+      }
 
-      if ((!result || result.length === 0)) {
+      if (!result || !result.data || result.data.length === 0) {
         setError('No data found for the selected criteria');
       }
     } catch (err) {
       setError(err.message || 'Failed to fetch report data');
       setData([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
-  }, [contoAddebito, executionDate, selectedType, idBanca]);
+  }, [executionDate, selectedType, resolvedBancaId]);
+
+  const handlePageChange = useCallback(async (newPageNumber) => {
+    if (!searchParams) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const request = {
+        ...searchParams,
+        pageNumber: newPageNumber,
+        pageSize: SERVER_PAGE_SIZE,
+      };
+
+      const result = await ReportsService.getControlloSaldi(request);
+      
+      if (result && result.data) {
+        setData(result.data || []);
+        setPageNumber(newPageNumber);
+      } else {
+        setError('Failed to load page data');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to fetch page data');
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchParams]);
 
   const handleExport = useCallback(async () => {
     try {
-      if (data.length === 0) {
+      if (totalCount === 0) {
         setError('No data to export');
         return;
       }
 
-      await ExportService.exportToXLS(data, 'ControlloSaldiReport', COLUMNS);
+      // Prepare export data - could fetch all pages or just current page
+      // For large datasets, limit to current page to avoid memory issues
+      const exportData = data;
+      
+      await ExportService.exportToXLS(exportData, 'ControlloSaldiReport', COLUMNS);
     } catch (err) {
       try {
         ExportService.exportToCSV(data, 'ControlloSaldiReport', COLUMNS);
@@ -106,23 +186,20 @@ export default function ControlloSaldiReport({ idBanca }) {
         setError('Failed to export data');
       }
     }
-  }, [data]);
+  }, [data, totalCount]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, p: 2 }}>
       {/* Filter Panel */}
       <Paper sx={{ p: 2, backgroundColor: '#ffffff', border: '1px solid #d6dbea' }}>
+
+         <Box sx={{ fontSize: '24px', fontWeight: 700, color: '#0f3aa5', mb: 2 }}>
+            Controllo Saldi K5
+          </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, mb: 2 }}>
+          
           <TextField
-            label="Conto Addebito"
-            type="text"
-            value={contoAddebito}
-            onChange={(e) => setContoAddebito(e.target.value)}
-            size="small"
-            fullWidth
-          />
-          <TextField
-            label="Execution Date"
+            label="Data Calcolo"
             type="date"
             value={executionDate}
             onChange={(e) => setExecutionDate(e.target.value)}
@@ -135,19 +212,21 @@ export default function ControlloSaldiReport({ idBanca }) {
             <Select
               value={selectedType}
               label="Tipo Controllo"
+              disabled={optionsLoading}
               onChange={(e) => setSelectedType(e.target.value)}
             >
-              {CONTROLLO_SALDI_TYPES.map(type => (
-                <MenuItem key={type} value={type}>{type}</MenuItem>
+              { /* <MenuItem value={ALL_CONTROLLO_SALDI_TYPE}>{ALL_CONTROLLO_SALDI_TYPE}</MenuItem> */ }
+              {typeOptions.map((type) => (
+                <MenuItem key={type.key} value={type.key}>{type.value}</MenuItem>
               ))}
             </Select>
           </FormControl>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <Button
               variant="contained"
               startIcon={<SearchIcon />}
               onClick={handleSearch}
-              disabled={loading}
+              disabled={loading || optionsLoading}
               sx={{ backgroundColor: '#0f3aa5', color: 'white' }}
               fullWidth
             >
@@ -157,7 +236,7 @@ export default function ControlloSaldiReport({ idBanca }) {
               variant="outlined"
               startIcon={<FileDownloadIcon />}
               onClick={handleExport}
-              disabled={loading || data.length === 0}
+              disabled={loading || totalCount === 0}
               sx={{ borderColor: '#0f3aa5', color: '#0f3aa5' }}
             >
               Export
@@ -203,7 +282,7 @@ export default function ControlloSaldiReport({ idBanca }) {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {visibleRows.map((row, index) => (
+                {data.map((row, index) => (
                   <TableRow key={index} sx={{ '&:hover': { backgroundColor: '#f9f9f9' } }}>
                     {COLUMNS.map((column) => (
                       <TableCell
@@ -229,8 +308,8 @@ export default function ControlloSaldiReport({ idBanca }) {
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
               <Pagination
                 count={totalPages}
-                page={pageIndex}
-                onChange={(e, value) => setPageIndex(value)}
+                page={pageNumber + 1}
+                onChange={(e, value) => handlePageChange(value - 1)}
                 color="primary"
               />
             </Box>
@@ -238,8 +317,8 @@ export default function ControlloSaldiReport({ idBanca }) {
 
           {/* Results Summary */}
           <Box sx={{ p: 2, textAlign: 'right', fontSize: '12px', color: '#666' }}>
-            Showing {((pageIndex - 1) * ROWS_PER_PAGE) + 1} to{' '}
-            {Math.min(pageIndex * ROWS_PER_PAGE, filteredData.length)} of {filteredData.length} results
+            Showing {pageNumber * SERVER_PAGE_SIZE + 1} to{' '}
+            {Math.min((pageNumber + 1) * SERVER_PAGE_SIZE, totalCount)} of {totalCount} results
           </Box>
         </Paper>
       )}
@@ -252,3 +331,4 @@ export default function ControlloSaldiReport({ idBanca }) {
     </Box>
   );
 }
+

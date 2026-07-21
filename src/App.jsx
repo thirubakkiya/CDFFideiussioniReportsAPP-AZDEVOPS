@@ -16,7 +16,7 @@ const REPORT_LINKS = [
   },
   {
     key: 'report-2',
-    label: 'Controllo Saldi',
+    label: 'Controllo Saldi K5',
     reportNumber: 2,
     firstPageKey: 'report-2',
   },

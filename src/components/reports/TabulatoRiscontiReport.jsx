@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Box,
   TextField,
@@ -19,36 +19,120 @@ import {
   Pagination,
 } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
-import SearchIcon from '@mui/icons-material/Search';
 import ReportsService from '../../services/ReportsService';
 import ExportService from '../../services/ExportService';
 
 const ROWS_PER_PAGE = 10;
-const RISCONTI_TYPES = ['TUTTI', 'DA RISCONTRARE', 'RISCONTRATO', 'ANOMALIA'];
+const TIPO_RISCONTI_PARENT_KEY = 'TIPO_RISCONTI';
 
 const COLUMNS = [
-  { header: 'Description', key: 'description', width: '30%' },
-  { header: 'Amount', key: 'amount', width: '15%' },
-  { header: 'Type', key: 'tipo', width: '15%' },
-  { header: 'Date', key: 'dataRisconto', width: '20%' },
-  { header: 'Status', key: 'status', width: '20%' },
+  { header: 'Succursale', key: 'succursale', width: '12%' },
+  { header: 'Tipo RC', key: 'rcType', width: '12%' },
+  { header: 'Cliente', key: 'cliente', width: '18%' },
+  { header: 'Numero Garanzia', key: 'numeroGaranzia', width: '14%' },
+  { header: 'Operazione', key: 'operationName', width: '16%' },
+  { header: 'Importo', key: 'importo', width: '12%' },
+  { header: 'Data Risconto', key: 'dataRisconto', width: '16%' },
 ];
+
+const toApiDate = (dateValue) => {
+  if (!dateValue) {
+    return '';
+  }
+
+  const [year, month, day] = dateValue.split('-');
+  if (!year || !month || !day) {
+    return dateValue;
+  }
+
+  return `${day}/${month}/${year}`;
+};
+
+const pickValue = (row, aliases, fallback = '') => {
+  for (const alias of aliases) {
+    if (row && Object.prototype.hasOwnProperty.call(row, alias) && row[alias] !== null && row[alias] !== undefined) {
+      return row[alias];
+    }
+  }
+  return fallback;
+};
+
+const normalizeTabulatoRiscontiRow = (row) => ({
+  succursale: pickValue(row, ['succursale', 'SUCCURSALE'], ''),
+  rcType: pickValue(row, ['rcType', 'rc_type', 'RC_TYPE'], ''),
+  cliente: pickValue(row, ['cliente', 'CLIENTE'], ''),
+  numeroGaranzia: pickValue(row, ['numeroGaranzia', 'numero_garanzia', 'NUMERO_GARANZIA'], ''),
+  operationName: pickValue(row, ['operationName', 'operation_name', 'OPERATION_NAME'], ''),
+  importo: pickValue(row, ['importo', 'IMPORTO', 'amount', 'AMOUNT'], 0),
+  dataRisconto: pickValue(row, ['dataRisconto', 'data_risconto', 'DATA_RISCONTO'], ''),
+  tipoRisconto: pickValue(row, ['rcType', 'rc_type', 'RC_TYPE', 'tipoRisconto', 'tipo_risconto'], ''),
+});
 
 export default function TabulatoRiscontiReport({ idBanca }) {
   const [loading, setLoading] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [data, setData] = useState([]);
-  const [selectedType, setSelectedType] = useState('TUTTI');
+  const [riscontiOptions, setRiscontiOptions] = useState([]);
+  const [selectedType, setSelectedType] = useState('');
   const [searchDate, setSearchDate] = useState('');
   const [pageIndex, setPageIndex] = useState(1);
 
+  const resolvedBancaId = Number(idBanca || localStorage.getItem('idBanca') || '1');
+
+  const normalizeChildParamOption = useCallback((item) => ({
+    key: String(item?.key || '').trim(),
+    value: String(item?.value || '').trim(),
+    visible: String(item?.visible || 'Y').toUpperCase(),
+    defaultValue: String(item?.defaultValue || 'N').toUpperCase(),
+  }), []);
+
+  useEffect(() => {
+    const loadRiscontiOptions = async () => {
+      setOptionsLoading(true);
+
+      try {
+        const childParams = await ReportsService.getChildParams({
+          parentKey: TIPO_RISCONTI_PARENT_KEY,
+          idBanca: resolvedBancaId,
+        });
+
+        const normalizedOptions = childParams
+          .map(normalizeChildParamOption)
+          .filter((item) => item.visible !== 'N' && item.key && item.value);
+
+        setRiscontiOptions(normalizedOptions);
+
+        if (normalizedOptions.length === 0) {
+          setSelectedType('');
+          setError('No Tipo Risconti options available from param collection');
+          return;
+        }
+
+        const defaultOption = normalizedOptions.find((item) => item.defaultValue === 'Y') || normalizedOptions[0];
+        setSelectedType(defaultOption.key);
+      } catch (err) {
+        setSelectedType('');
+        setRiscontiOptions([]);
+        setError(err.message || 'Failed to load Tipo Risconti options');
+      } finally {
+        setOptionsLoading(false);
+      }
+    };
+
+    loadRiscontiOptions();
+  }, [normalizeChildParamOption, resolvedBancaId]);
+
+  const buildTabulatoRequestPayload = useCallback(() => {
+    return {
+      bancaId: resolvedBancaId,
+      dataRisconto: toApiDate(searchDate),
+      tipoRisconti: selectedType,
+    };
+  }, [resolvedBancaId, searchDate, selectedType]);
+
   // Filter data based on selected type
-  const filteredData = useMemo(() => {
-    if (selectedType === 'TUTTI') {
-      return data;
-    }
-    return data.filter(row => row.tipoRisconto === selectedType);
-  }, [data, selectedType]);
+  const filteredData = useMemo(() => data, [data]);
 
   const totalPages = Math.max(Math.ceil(filteredData.length / ROWS_PER_PAGE), 1);
   const visibleRows = useMemo(() => {
@@ -56,9 +140,20 @@ export default function TabulatoRiscontiReport({ idBanca }) {
     return filteredData.slice(start, start + ROWS_PER_PAGE);
   }, [filteredData, pageIndex]);
 
+  useEffect(() => {
+    if (pageIndex > totalPages) {
+      setPageIndex(totalPages);
+    }
+  }, [pageIndex, totalPages]);
+
   const handleSearch = useCallback(async () => {
     if (!searchDate) {
-      setError('Please select a date');
+      setError('Please select Data Risconto');
+      return;
+    }
+
+    if (!selectedType) {
+      setError('Please select Tipo Risconti');
       return;
     }
 
@@ -67,16 +162,15 @@ export default function TabulatoRiscontiReport({ idBanca }) {
     setPageIndex(1);
 
     try {
-      const request = {
-        bancaId: idBanca || localStorage.getItem('idBanca'),
-        dataRisconto: searchDate,
-        tipoRisconti: selectedType !== 'TUTTI' ? selectedType : null,
-      };
+      const request = buildTabulatoRequestPayload();
 
       const result = await ReportsService.getTabulatoRiscontiReport(request);
-      setData(result || []);
+      const normalizedRows = Array.isArray(result)
+        ? result.map(normalizeTabulatoRiscontiRow)
+        : [];
+      setData(normalizedRows);
 
-      if ((!result || result.length === 0)) {
+      if (normalizedRows.length === 0) {
         setError('No data found for the selected criteria');
       }
     } catch (err) {
@@ -85,33 +179,44 @@ export default function TabulatoRiscontiReport({ idBanca }) {
     } finally {
       setLoading(false);
     }
-  }, [searchDate, selectedType, idBanca]);
+  }, [searchDate, selectedType, buildTabulatoRequestPayload]);
 
   const handleExport = useCallback(async () => {
+    let exportRows = [];
+
     try {
-      if (data.length === 0) {
+      if (filteredData.length === 0) {
         setError('No data to export');
         return;
       }
 
+      exportRows = filteredData.map((row) => ({
+        ...row,
+        importo: formatCurrency(row.importo),
+        dataRisconto: formatDate(row.dataRisconto),
+      }));
+
       await ExportService.exportToXLS(
-        data,
+        exportRows,
         'TabulatoRiscontiReport',
         COLUMNS
       );
     } catch (err) {
       try {
-        ExportService.exportToCSV(data, 'TabulatoRiscontiReport', COLUMNS);
+        ExportService.exportToCSV(exportRows, 'TabulatoRiscontiReport', COLUMNS);
       } catch (csvErr) {
         setError('Failed to export data');
       }
     }
-  }, [data]);
+  }, [filteredData]);
 
   const formatDate = (dateString) => {
-    if (!dateString) return '';
+    if (!dateString) return '-';
     try {
       const date = new Date(dateString);
+      if (Number.isNaN(date.getTime())) {
+        return dateString;
+      }
       return date.toLocaleString('it-IT');
     } catch {
       return dateString;
@@ -119,9 +224,9 @@ export default function TabulatoRiscontiReport({ idBanca }) {
   };
 
   const formatCurrency = (value) => {
-    if (!value) return '€ 0,00';
+    if (!value) return '\u20AC 0,00';
     try {
-      return `€ ${parseFloat(value).toLocaleString('it-IT', {
+      return `\u20AC ${parseFloat(value).toLocaleString('it-IT', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })}`;
@@ -134,9 +239,13 @@ export default function TabulatoRiscontiReport({ idBanca }) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, p: 2 }}>
       {/* Filter Panel */}
       <Paper sx={{ p: 2, backgroundColor: '#ffffff', border: '1px solid #d6dbea' }}>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, mb: 2 }}>
+        <Box sx={{ fontSize: '24px', fontWeight: 700, color: '#0f3aa5', mb: 2 }}>
+          Tabulato Risconti
+        </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '260px 344px 160px' }, justifyContent: { xs: 'stretch', md: 'space-between' }, alignItems: 'end', gap: 2, mb: 2 }}>
+
           <TextField
-            label="Risconti Date"
+            label="* Data Risconto"
             type="date"
             value={searchDate}
             onChange={(e) => setSearchDate(e.target.value)}
@@ -144,39 +253,44 @@ export default function TabulatoRiscontiReport({ idBanca }) {
             size="small"
             fullWidth
           />
+
+          
+
           <FormControl size="small" fullWidth>
+
             <InputLabel>Tipo Risconti</InputLabel>
             <Select
               value={selectedType}
               label="Tipo Risconti"
               onChange={(e) => setSelectedType(e.target.value)}
+              disabled={optionsLoading || riscontiOptions.length === 0}
             >
-              {RISCONTI_TYPES.map(type => (
-                <MenuItem key={type} value={type}>{type}</MenuItem>
+              {riscontiOptions.map((option) => (
+                <MenuItem key={option.key} value={option.key}>{option.value}</MenuItem>
               ))}
             </Select>
           </FormControl>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="contained"
-              startIcon={<SearchIcon />}
-              onClick={handleSearch}
-              disabled={loading}
-              sx={{ backgroundColor: '#0f3aa5', color: 'white' }}
-              fullWidth
-            >
-              {loading ? 'Loading...' : 'Search'}
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<FileDownloadIcon />}
-              onClick={handleExport}
-              disabled={loading || data.length === 0}
-              sx={{ borderColor: '#0f3aa5', color: '#0f3aa5' }}
-            >
-              Export
-            </Button>
-          </Box>
+          <Button
+            variant="contained"
+            onClick={handleSearch}
+            disabled={loading || optionsLoading || !selectedType}
+            sx={{ backgroundColor: '#0f3aa5', color: 'white', borderRadius: '12px', height: '40px', minWidth: '160px', justifySelf: { xs: 'stretch', md: 'start' } }}
+            fullWidth={false}
+          >
+            {loading ? 'LOADING...' : 'CONFERMA'}
+          </Button>
+        </Box>
+
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button
+            variant="outlined"
+            startIcon={<FileDownloadIcon />}
+            onClick={handleExport}
+            disabled={loading || filteredData.length === 0}
+            sx={{ borderColor: '#0f3aa5', color: '#0f3aa5' }}
+          >
+            Export
+          </Button>
         </Box>
 
         {error && (
@@ -231,7 +345,7 @@ export default function TabulatoRiscontiReport({ idBanca }) {
                       >
                         {column.key === 'dataRisconto'
                           ? formatDate(row[column.key])
-                          : column.key === 'amount'
+                          : column.key === 'importo'
                           ? formatCurrency(row[column.key])
                           : row[column.key] || '-'}
                       </TableCell>
@@ -264,7 +378,7 @@ export default function TabulatoRiscontiReport({ idBanca }) {
 
       {!loading && data.length === 0 && !error && (
         <Paper sx={{ p: 4, textAlign: 'center', color: '#999' }}>
-          No data available. Select date and click Search to fetch reports.
+          No data available. Select filters and click <strong>CONFERMA</strong> to fetch reports.
         </Paper>
       )}
     </Box>

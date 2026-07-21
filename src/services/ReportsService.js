@@ -126,6 +126,35 @@ client.interceptors.response.use(
 
 export const ReportsService = {
   /**
+   * Get child params by parent key
+   * @param {Object} request - Request parameters
+   * @param {string} request.parentKey - Parent key (e.g. TIPO_RISCONTI)
+   * @param {string|number} request.idBanca - Bank ID
+   * @returns {Promise<Array>} Array of child param items
+   */
+  getChildParams: async ({ parentKey, idBanca }) => {
+    try {
+      console.log('?? Fetching child params...', { parentKey, idBanca });
+      const response = await client.get('/child-params', {
+        params: {
+          parentKey,
+          idBanca,
+        },
+      });
+
+      const rows = extractArrayFromResponse(response.data);
+      console.log(`? Retrieved ${rows.length} child param records`);
+      if (rows.length === 0) {
+        console.warn('?? Unexpected child params response format:', response.data);
+      }
+      return rows;
+    } catch (error) {
+      console.error('? Error fetching child params:', error.message);
+      throw error;
+    }
+  },
+
+  /**
    * Get Spese Notaio Report
    * @param {Object} request - Request parameters
    * @param {string|number} request.bancaId - Bank ID
@@ -187,7 +216,7 @@ export const ReportsService = {
   getReportContabile: async (request) => {
     try {
       console.log('?? Fetching Controllo Saldi Report...', request);
-      const response = await client.post('/reports/contabile', request);
+      const response = await client.post('/reports/controllo-saldi', request);
 
       const rows = extractArrayFromResponse(response.data);
       console.log(`? Retrieved ${rows.length} Controllo Saldi records`);
@@ -223,6 +252,39 @@ export const ReportsService = {
       return rows;
     } catch (error) {
       console.error('? Error fetching Operazioni Contabile report:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Get Controllo Saldi Report (with pagination support)
+   * @param {Object} request - Request body parameters
+   * @param {string|number} request.bancaId - Bank ID (required)
+   * @param {string} request.executionDate - Execution date (dd/MM/yyyy format, required)
+   * @param {string} request.tipoControllo - (Optional) Control type filter
+   * @param {number} request.pageNumber - (Optional) Page number (0-indexed, default 0)
+   * @param {number} request.pageSize - (Optional) Page size (default 500, max 5000)
+   * @returns {Promise<Object>} Paginated response with data[], totalCount, pageNumber, pageSize, totalPages
+   */
+  getControlloSaldi: async (request) => {
+    try {
+      console.log('?? Fetching Controllo Saldi Report (paginated via POST)...', request);
+      
+      const response = await client.post('/reports/controllo-saldi', {
+        bancaId: request.bancaId,
+        executionDate: request.executionDate,
+        tipoControllo: request.tipoControllo || null,
+        pageNumber: request.pageNumber || 0,
+        pageSize: request.pageSize || 500,
+      });
+      
+      // Response should be PaginatedResponseDto<ControlloSaldiResponse>
+      const paginatedData = response.data;
+      console.log(`? Retrieved ${paginatedData.data?.length || 0} records of ${paginatedData.totalCount || 0} total`);
+      
+      return paginatedData;
+    } catch (error) {
+      console.error('? Error fetching Controllo Saldi report:', error.message);
       throw error;
     }
   },
