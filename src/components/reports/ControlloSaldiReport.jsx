@@ -27,14 +27,41 @@ const SERVER_PAGE_SIZE = 30;
 const TIPO_CONTROLLO_PARENT_KEY = 'TIPO_CONTROLLO';
 const ALL_CONTROLLO_SALDI_TYPE = 'TC_TUTTI_CONTI';
 
+/**
+ * Convert dd/MM/yyyy to YYYY-MM-DD format (for HTML date input)
+ */
+const formatDateToISO = (dateString) => {
+  if (!dateString) return '';
+  // Handle both dd/MM/yyyy and YYYY-MM-DD formats
+  if (dateString.includes('/')) {
+    const [day, month, year] = dateString.split('/');
+    return `${year}-${month}-${day}`;
+  }
+  return dateString; // Already in ISO format
+};
+
+/**
+ * Convert YYYY-MM-DD to dd/MM/yyyy format (for display)
+ */
+const formatDateToItalian = (dateString) => {
+  if (!dateString) return '';
+  // Handle both YYYY-MM-DD and dd/MM/yyyy formats
+  if (dateString.includes('-')) {
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  return dateString; // Already in Italian format
+};
+
 const COLUMNS = [
-  { header: 'Data Calcolo', key: 'dataCalcolo', width: '15%' },
-  { header: 'Numero Conto', key: 'numeroConto', width: '18%' },
+  { header: 'Data Calcolo', key: 'dataCalcoloFormatted', width: '12%' },
+  { header: 'Numero Conto', key: 'numeroConto', width: '14%' },
   { header: 'Divisa', key: 'divisa', width: '10%' },
-  { header: 'Denominazione', key: 'denominazione', width: '20%' },
-  { header: 'Importo Archivio', key: 'importoArchivio', width: '15%' },
-  { header: 'Saldo Contabile', key: 'saldoContabile', width: '15%' },
-  { header: 'Stato', key: 'stato', width: '12%' },
+  { header: 'Denominazione o Rag. Sociale', key: 'denominazione', width: '22%' },
+  { header: '8 cifre', key: 'ottoCifre', width: '10%' },
+  { header: 'Importo Archivio', key: 'importoArchivio', width: '14%' },
+  { header: 'Saldo Contabile', key: 'saldoContabile', width: '14%' },
+  { header: 'Differenza', key: 'differenza', width: '14%' },
 ];
 
 export default function ControlloSaldiReport({ idBanca }) {
@@ -106,6 +133,7 @@ export default function ControlloSaldiReport({ idBanca }) {
     setPageNumber(0);
 
     try {
+      // Send date in ISO format (YYYY-MM-DD) for backend LocalDate deserialization
       const request = {
         bancaId: resolvedBancaId,
         executionDate: executionDate,
@@ -117,17 +145,23 @@ export default function ControlloSaldiReport({ idBanca }) {
       setSearchParams(request);
       const result = await ReportsService.getControlloSaldi(request);
       
-      // Handle paginated response
-      if (result && result.data) {
-        setData(result.data || []);
-        setTotalCount(result.totalCount || 0);
+      // Handle WrappedResponse<PaginatedResponseDto> structure
+      if (result && result.payload) {
+        // Check if payload is the PaginatedResponseDto or array directly
+        const responseData = result.payload.data || result.payload;
+        const dataArray = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+        const count = result.payload.totalCount || dataArray.length;
+        
+        setData(dataArray);
+        setTotalCount(count);
+        
+        if (dataArray.length === 0) {
+          setError('No data found for the selected criteria');
+        }
       } else {
         setData([]);
         setTotalCount(0);
-      }
-
-      if (!result || !result.data || result.data.length === 0) {
-        setError('No data found for the selected criteria');
+        setError('Invalid response structure from API');
       }
     } catch (err) {
       setError(err.message || 'Failed to fetch report data');
@@ -153,11 +187,15 @@ export default function ControlloSaldiReport({ idBanca }) {
 
       const result = await ReportsService.getControlloSaldi(request);
       
-      if (result && result.data) {
-        setData(result.data || []);
+      // Handle WrappedResponse<PaginatedResponseDto> structure
+      if (result && result.payload) {
+        const responseData = result.payload.data || result.payload;
+        const dataArray = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+        setData(dataArray);
         setPageNumber(newPageNumber);
       } else {
         setError('Failed to load page data');
+        setData([]);
       }
     } catch (err) {
       setError(err.message || 'Failed to fetch page data');
@@ -174,19 +212,53 @@ export default function ControlloSaldiReport({ idBanca }) {
         return;
       }
 
-      // Prepare export data - could fetch all pages or just current page
-      // For large datasets, limit to current page to avoid memory issues
-      const exportData = data;
+      setLoading(true);
+      setError(null);
       
-      await ExportService.exportToXLS(exportData, 'ControlloSaldiReport', COLUMNS);
+      // Fetch all data across all pages for export
+      let allExportData = [];
+      const pagesToFetch = Math.ceil(totalCount / SERVER_PAGE_SIZE);
+      
+      for (let pageNum = 0; pageNum < pagesToFetch; pageNum++) {
+        try {
+          const request = {
+            ...searchParams,
+            pageNumber: pageNum,
+            pageSize: SERVER_PAGE_SIZE,
+          };
+          
+          // Pass isExport=true to use extended timeout for export operations
+          const result = await ReportsService.getControlloSaldi(request, true);
+          
+          if (result && result.payload) {
+            const responseData = result.payload.data || result.payload;
+            const pageData = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+            allExportData = allExportData.concat(pageData);
+          }
+        } catch (pageErr) {
+          console.warn(`Failed to fetch page ${pageNum} for export:`, pageErr);
+          // Continue with next page if one fails
+        }
+      }
+      
+      if (allExportData.length === 0) {
+        setError('No data available to export');
+        return;
+      }
+      
+      // Export all collected data
+      await ExportService.exportToXLS(allExportData, 'ControlloSaldiReport', COLUMNS);
     } catch (err) {
+      console.error('Export error:', err);
       try {
-        ExportService.exportToCSV(data, 'ControlloSaldiReport', COLUMNS);
+        await ExportService.exportToCSV(data, 'ControlloSaldiReport', COLUMNS);
       } catch (csvErr) {
         setError('Failed to export data');
       }
+    } finally {
+      setLoading(false);
     }
-  }, [data, totalCount]);
+  }, [data, totalCount, searchParams]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, p: 2 }}>
@@ -198,15 +270,17 @@ export default function ControlloSaldiReport({ idBanca }) {
           </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, mb: 2 }}>
           
-          <TextField
-            label="Data Calcolo"
-            type="date"
-            value={executionDate}
-            onChange={(e) => setExecutionDate(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            size="small"
-            fullWidth
-          />
+          <Box>
+            <TextField
+              label="Data Calcolo"
+              type="date"
+              value={executionDate}
+              onChange={(e) => setExecutionDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              size="small"
+              fullWidth
+            />
+          </Box>
           <FormControl size="small" fullWidth>
             <InputLabel>Tipo Controllo</InputLabel>
             <Select
@@ -304,13 +378,14 @@ export default function ControlloSaldiReport({ idBanca }) {
           </TableContainer>
 
           {/* Pagination */}
-          {totalPages > 1 && (
+          {totalPages > 0 && (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
               <Pagination
                 count={totalPages}
                 page={pageNumber + 1}
                 onChange={(e, value) => handlePageChange(value - 1)}
                 color="primary"
+                disabled={loading}
               />
             </Box>
           )}

@@ -29,17 +29,34 @@ const COLUMNS = [
   { header: 'Operation Date', key: 'operationDate', width: '18%' },
 ];
 
+/**
+ * Convert YYYY-MM-DD to dd/MM/yyyy format (for display and API)
+ */
+const formatDateDisplay = (dateString) => {
+  if (!dateString) return '';
+  if (dateString.includes('-')) {
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  return dateString;
+};
+
+/**
+ * Convert dd/MM/yyyy to YYYY-MM-DD format for API
+ */
 const toApiDate = (dateValue) => {
   if (!dateValue) {
     return '';
   }
 
-  const [year, month, day] = dateValue.split('-');
-  if (!year || !month || !day) {
-    return dateValue;
+  // Handle YYYY-MM-DD format (HTML date input)
+  if (dateValue.includes('-')) {
+    const [year, month, day] = dateValue.split('-');
+    return `${day}/${month}/${year}`; // Convert to dd/MM/yyyy for API
   }
 
-  return `${day}/${month}/${year}`;
+  // Handle dd/MM/yyyy format (shouldn't happen with date picker)
+  return dateValue;
 };
 
 const pickValue = (row, aliases, fallback = '') => {
@@ -68,11 +85,11 @@ export default function SpeseNotaioReport({ idBanca }) {
   const [toDate, setToDate] = useState('');
   const [pageIndex, setPageIndex] = useState(1);
 
-  const buildSpeseRequestPayload = useCallback(() => ({
+  const buildSpeseRequestPayload = useCallback((from, to) => ({
     bancaId: Number(idBanca || localStorage.getItem('idBanca') || '1'),
-    fromDate: toApiDate(fromDate),
-    toDate: toApiDate(toDate),
-  }), [idBanca, fromDate, toDate]);
+    fromDate: from,
+    toDate: to,
+  }), [idBanca]);
 
   // Filter data based on selected type
   const filteredData = useMemo(() => data, [data]);
@@ -95,8 +112,16 @@ export default function SpeseNotaioReport({ idBanca }) {
       return;
     }
 
-    // Validate date range
-    if (new Date(fromDate) > new Date(toDate)) {
+    // Validate date range by converting to comparable format
+    const parseDate = (dateStr) => {
+      // dateStr is in YYYY-MM-DD format from date picker
+      return new Date(dateStr);
+    };
+
+    const fromDateObj = parseDate(fromDate);
+    const toDateObj = parseDate(toDate);
+
+    if (fromDateObj > toDateObj) {
       setError('From Date must be before To Date');
       return;
     }
@@ -106,7 +131,8 @@ export default function SpeseNotaioReport({ idBanca }) {
     setPageIndex(1);
 
     try {
-      const request = buildSpeseRequestPayload();
+      // Send dates in ISO format (YYYY-MM-DD) for backend LocalDate deserialization
+      const request = buildSpeseRequestPayload(fromDate, toDate);
 
       console.log('API Request:', request);
 
@@ -130,7 +156,7 @@ export default function SpeseNotaioReport({ idBanca }) {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate, buildSpeseRequestPayload]);
+  }, [fromDate, toDate]);
 
   const handleExport = useCallback(async () => {
     let exportRows = [];

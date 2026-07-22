@@ -21,11 +21,17 @@ if (config.debug) {
   console.log('   Debug logging enabled');
 }
 
+// Standard timeout for normal requests (30s)
+const STANDARD_TIMEOUT = config.timeout || 30000;
+// Extended timeout for export operations (120s for large datasets)
+const EXPORT_TIMEOUT = 120000;
+
 const client = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: STANDARD_TIMEOUT,
 });
 
 const RESPONSE_ARRAY_KEYS = [
@@ -266,9 +272,12 @@ export const ReportsService = {
    * @param {number} request.pageSize - (Optional) Page size (default 500, max 5000)
    * @returns {Promise<Object>} Paginated response with data[], totalCount, pageNumber, pageSize, totalPages
    */
-  getControlloSaldi: async (request) => {
+  getControlloSaldi: async (request, isExport = false) => {
     try {
       console.log('?? Fetching Controllo Saldi Report (paginated via POST)...', request);
+      
+      // Use extended timeout for export operations
+      const timeout = isExport ? EXPORT_TIMEOUT : STANDARD_TIMEOUT;
       
       const response = await client.post('/reports/controllo-saldi', {
         bancaId: request.bancaId,
@@ -276,6 +285,8 @@ export const ReportsService = {
         tipoControllo: request.tipoControllo || null,
         pageNumber: request.pageNumber || 0,
         pageSize: request.pageSize || 500,
+      }, {
+        timeout: timeout,
       });
       
       // Response should be PaginatedResponseDto<ControlloSaldiResponse>
