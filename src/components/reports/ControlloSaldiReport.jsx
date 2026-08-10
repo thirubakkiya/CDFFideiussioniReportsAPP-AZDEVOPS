@@ -27,32 +27,6 @@ const SERVER_PAGE_SIZE = 30;
 const TIPO_CONTROLLO_PARENT_KEY = 'TIPO_CONTROLLO';
 const ALL_CONTROLLO_SALDI_TYPE = 'TC_TUTTI_CONTI';
 
-/**
- * Convert dd/MM/yyyy to YYYY-MM-DD format (for HTML date input)
- */
-const formatDateToISO = (dateString) => {
-  if (!dateString) return '';
-  // Handle both dd/MM/yyyy and YYYY-MM-DD formats
-  if (dateString.includes('/')) {
-    const [day, month, year] = dateString.split('/');
-    return `${year}-${month}-${day}`;
-  }
-  return dateString; // Already in ISO format
-};
-
-/**
- * Convert YYYY-MM-DD to dd/MM/yyyy format (for display)
- */
-const formatDateToItalian = (dateString) => {
-  if (!dateString) return '';
-  // Handle both YYYY-MM-DD and dd/MM/yyyy formats
-  if (dateString.includes('-')) {
-    const [year, month, day] = dateString.split('-');
-    return `${day}/${month}/${year}`;
-  }
-  return dateString; // Already in Italian format
-};
-
 const COLUMNS = [
   { header: 'Data Calcolo', key: 'dataCalcoloFormatted', width: '12%' },
   { header: 'Numero Conto', key: 'numeroConto', width: '14%' },
@@ -272,7 +246,7 @@ export default function ControlloSaldiReport({ idBanca }) {
           
           <Box>
             <TextField
-              label="Data Calcolo"
+              label="* Data Calcolo"
               type="date"
               value={executionDate}
               onChange={(e) => setExecutionDate(e.target.value)}

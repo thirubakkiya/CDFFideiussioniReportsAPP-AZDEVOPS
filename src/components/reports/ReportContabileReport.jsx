@@ -27,6 +27,46 @@ const ROWS_PER_PAGE = 10;
 const CONTABILE_TYPES = ['TUTTI', 'SCOSTAMENTO', 'QUADRATO', 'DA VERIFICARE'];
 const OPERATION_TYPES = ['TUTTI', 'ADDEBITO', 'ACCREDITO', 'RETTIFICA'];
 
+/**
+ * Parse date from dd/MM/yyyy string to YYYY-MM-DD for internal storage
+ */
+const parseItalianDate = (dateString) => {
+  if (!dateString) return '';
+  const trimmed = dateString.trim();
+  const italianDateRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+  const match = trimmed.match(italianDateRegex);
+  
+  if (match) {
+    const [, day, month, year] = match;
+    const d = parseInt(day, 10);
+    const m = parseInt(month, 10);
+    const y = parseInt(year, 10);
+    
+    if (m < 1 || m > 12) return '';
+    if (d < 1 || d > 31) return '';
+    
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  
+  if (trimmed.includes('-')) {
+    return trimmed;
+  }
+  
+  return '';
+};
+
+/**
+ * Format date from YYYY-MM-DD to dd/MM/yyyy for display
+ */
+const formatItalianDate = (dateString) => {
+  if (!dateString) return '';
+  if (dateString.includes('-')) {
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  return dateString;
+};
+
 const COLUMNS = [
   { header: 'Data Calcolo', key: 'dataCalcolo', width: '15%' },
   { header: 'Numero Conto', key: 'numeroConto', width: '18%' },
@@ -135,7 +175,7 @@ export default function ReportContabileReport({ idBanca, reportType = 'contabile
             fullWidth
           />
           <TextField
-            label="Execution Date"
+            label="* Execution Date"
             type="date"
             value={executionDate}
             onChange={(e) => setExecutionDate(e.target.value)}

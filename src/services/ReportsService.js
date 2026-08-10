@@ -240,9 +240,12 @@ export const ReportsService = {
    * Get Operazioni Contabile Report
    * @param {Object} request - Request parameters
    * @param {string|number} request.bancaId - Bank ID
-   * @param {string} request.contoAddebito - Account to debit
-   * @param {string} request.executionDate - Execution date (YYYY-MM-DD)
-   * @param {string} request.stato - Operation type (ADDEBITO, ACCREDITO, RETTIFICA)
+   * @param {string} request.dataEsecuzione - Execution date (dd/MM/yyyy format, required)
+   * @param {string} request.ottoCifre - 8-digit account code (optional)
+   * @param {string} request.numeroGaranzia - Guarantee number (optional)
+   * @param {string} request.stato - Status filter (optional)
+   * @param {string} request.operazioneContabile - Accounting operation (optional)
+   * @param {string} request.contoInterno - Internal account (optional)
    * @returns {Promise<Array>} Array of ReportContabile objects
    */
   getOperazioniContabileReport: async (request) => {
