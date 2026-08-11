@@ -21,6 +21,7 @@ import {
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import SearchIcon from '@mui/icons-material/Search';
 import ReportsService from '../../services/ReportsService';
+import { formatDateForApi } from '../../utils/dateUtils';
 import ExportService from '../../services/ExportService';
 
 const SERVER_PAGE_SIZE = 30;
@@ -107,10 +108,10 @@ export default function ControlloSaldiReport({ idBanca }) {
     setPageNumber(0);
 
     try {
-      // Send date in ISO format (YYYY-MM-DD) for backend LocalDate deserialization
+      // Send date in dd/MM/yyyy format for backend deserialization
       const request = {
         bancaId: resolvedBancaId,
-        executionDate: executionDate,
+        executionDate: formatDateForApi(executionDate),
         tipoControllo: selectedType !== ALL_CONTROLLO_SALDI_TYPE ? selectedType : null,
         pageNumber: 0,
         pageSize: SERVER_PAGE_SIZE,

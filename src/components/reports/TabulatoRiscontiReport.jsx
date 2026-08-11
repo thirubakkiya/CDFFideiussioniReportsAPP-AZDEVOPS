@@ -21,6 +21,7 @@ import {
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import ReportsService from '../../services/ReportsService';
 import ExportService from '../../services/ExportService';
+import { formatDateForApi } from '../../utils/dateUtils';
 
 const ROWS_PER_PAGE = 10;
 const TIPO_RISCONTI_PARENT_KEY = 'TIPO_RISCONTI';
@@ -34,21 +35,6 @@ const COLUMNS = [
   { header: 'Importo', key: 'importo', width: '12%' },
   { header: 'Data Risconto', key: 'dataRisconto', width: '16%' },
 ];
-
-
-
-const toApiDate = (dateValue) => {
-  if (!dateValue) {
-    return '';
-  }
-
-  const [year, month, day] = dateValue.split('-');
-  if (!year || !month || !day) {
-    return dateValue;
-  }
-
-  return `${day}/${month}/${year}`;
-};
 
 const pickValue = (row, aliases, fallback = '') => {
   for (const alias of aliases) {
@@ -128,7 +114,7 @@ export default function TabulatoRiscontiReport({ idBanca }) {
   const buildTabulatoRequestPayload = useCallback(() => {
     return {
       bancaId: resolvedBancaId,
-      dataRisconto: toApiDate(searchDate),
+      dataRisconto: formatDateForApi(searchDate),
       tipoRisconti: selectedType,
     };
   }, [resolvedBancaId, searchDate, selectedType]);

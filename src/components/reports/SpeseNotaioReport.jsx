@@ -17,6 +17,7 @@ import {
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import ReportsService from '../../services/ReportsService';
 import ExportService from '../../services/ExportService';
+import { formatDateForApi } from '../../utils/dateUtils';
 
 const ROWS_PER_PAGE = 10;
 
@@ -127,8 +128,8 @@ export default function SpeseNotaioReport({ idBanca }) {
 
   const buildSpeseRequestPayload = useCallback((from, to) => ({
     bancaId: Number(idBanca || localStorage.getItem('idBanca') || '1'),
-    fromDate: from,
-    toDate: to,
+    fromDate: formatDateForApi(from),
+    toDate: formatDateForApi(to),
   }), [idBanca]);
 
   // Filter data based on selected type

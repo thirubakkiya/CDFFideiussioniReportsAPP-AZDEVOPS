@@ -27,21 +27,9 @@ import {
 import MenuIcon from '@mui/icons-material/Menu';
 import ReportsService from '../../services/ReportsService';
 import ExportService from '../../services/ExportService';
+import { formatDateForApi } from '../../utils/dateUtils';
 
 const ROWS_PER_PAGE = 10;
-
-/**
- * Convert YYYY-MM-DD to dd/MM/yyyy format for API
- */
-const formatDateForApi = (dateString) => {
-  if (!dateString) return '';
-  // Handle YYYY-MM-DD format (HTML input or internal state)
-  if (dateString.includes('-')) {
-    const [year, month, day] = dateString.split('-');
-    return `${day}/${month}/${year}`; // Convert to dd/MM/yyyy
-  }
-  return dateString; // Already in correct format
-};
 
 const COLUMNS = [
   { header: 'Numero Ordine', key: 'numeroOrdine', width: '10%' },
