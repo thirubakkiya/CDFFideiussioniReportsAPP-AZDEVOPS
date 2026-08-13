@@ -78,12 +78,7 @@ export default function App() {
         }}
       >
         {renderReport()}
-        <Box sx={{ mt: 'auto' }}>
-          <AppFooter
-            reportLabel={REPORT_LINKS[currentReport - 1]?.label}
-            designName="Fideiussioni Report"
-          />
-        </Box>
+        
       </Box>
     </UpdatedLayout>
   );

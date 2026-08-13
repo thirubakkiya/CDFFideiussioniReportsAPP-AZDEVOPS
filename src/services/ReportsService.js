@@ -75,6 +75,58 @@ const extractArrayFromResponse = (payload) => {
   return [];
 };
 
+/**
+ * Some backends (e.g. the reports proxy) wrap a downstream error response as an
+ * escaped JSON string inside their own "message" field, e.g.:
+ * 400 on POST request for "...": "{"errorCode":"INVALID_INPUT",...,"details":{"validationError":"..."}}"
+ * This extracts the embedded JSON object (if any) and parses it.
+ */
+const parseEmbeddedJson = (text) => {
+  if (typeof text !== 'string') return null;
+  // Require '{' followed by a quoted key so placeholder tokens like "{0}" aren't matched
+  const match = text.match(/\{"[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[0].replace(/\\"/g, '"'));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Extract a user-friendly message from a backend error response.
+ * Backend errors follow: { errorCode, message, status, details: { validationError }, correlationId }
+ * Proxied errors may wrap that same structure as a string inside "message", or inside a
+ * gateway-style { messages: [{ code, description, severity }], techInfo } envelope.
+ */
+const extractErrorMessage = (error) => {
+  const data = error?.response?.data;
+  if (!data) {
+    return error.message || 'Request failed';
+  }
+
+  if (data.details?.validationError) {
+    return data.details.validationError;
+  }
+
+  // Gateway-style envelope: { messages: [{ code, description, ... }], techInfo }
+  const gatewayDescription = Array.isArray(data.messages) ? data.messages[0]?.description : null;
+
+  const embedded = parseEmbeddedJson(data.message) || parseEmbeddedJson(data.error) || parseEmbeddedJson(gatewayDescription);
+  if (embedded?.details?.validationError) {
+    return embedded.details.validationError;
+  }
+  if (embedded?.message) {
+    return embedded.message;
+  }
+
+  if (gatewayDescription) {
+    return gatewayDescription;
+  }
+
+  return data.message || error.message;
+};
+
 // Add interceptor to include auth token
 client.interceptors.request.use((config_obj) => {
   const token = localStorage.getItem('user_access_token');
@@ -107,6 +159,12 @@ client.interceptors.response.use(
       console.error(`? API Error Status: ${error.response.status} from ${error.config.url}`);
       console.error('   Error Data:', error.response.data);
       
+      // Prefer the backend's own validation/error message when present, over a generic one
+      const backendMessage = extractErrorMessage(error);
+      if (backendMessage && backendMessage !== error.message) {
+        throw new Error(backendMessage);
+      }
+
       // Handle specific status codes
       if (error.response.status === 400) {
         throw new Error('Invalid request parameters - Please check your input');
@@ -156,7 +214,7 @@ export const ReportsService = {
       return rows;
     } catch (error) {
       console.error('? Error fetching child params:', error.message);
-      throw error;
+      throw new Error(extractErrorMessage(error));
     }
   },
 
@@ -181,7 +239,7 @@ export const ReportsService = {
       return rows;
     } catch (error) {
       console.error('? Error fetching Spese Notaio report:', error.message);
-      throw error;
+      throw new Error(extractErrorMessage(error));
     }
   },
 
@@ -206,7 +264,7 @@ export const ReportsService = {
       return rows;
     } catch (error) {
       console.error('? Error fetching Tabulato Risconti report:', error.message);
-      throw error;
+      throw new Error(extractErrorMessage(error));
     }
   },
 
@@ -232,7 +290,7 @@ export const ReportsService = {
       return rows;
     } catch (error) {
       console.error('? Error fetching Controllo Saldi report:', error.message);
-      throw error;
+      throw new Error(extractErrorMessage(error));
     }
   },
 
@@ -261,7 +319,7 @@ export const ReportsService = {
       return rows;
     } catch (error) {
       console.error('? Error fetching Operazioni Contabile report:', error.message);
-      throw error;
+      throw new Error(extractErrorMessage(error));
     }
   },
 
@@ -299,7 +357,27 @@ export const ReportsService = {
       return paginatedData;
     } catch (error) {
       console.error('? Error fetching Controllo Saldi report:', error.message);
-      throw error;
+      throw new Error(extractErrorMessage(error));
+    }
+  },
+
+  /**
+   * Get Conto Interno options for dropdown
+   * Fetches distinct account values filtered by bank ID
+   * @param {string|number} bancaId - Bank ID
+   * @returns {Promise<Array<string>>} Array of account numbers
+   */
+  getContoInternoOptions: async (bancaId) => {
+    try {
+      console.log(`?? Fetching Conto Interno options for bancaId: ${bancaId}`);
+      const response = await client.get(`/reports/conto-interno-options?bancaId=${bancaId}`);
+      
+      const options = extractArrayFromResponse(response.data);
+      console.log(`? Retrieved ${options.length} Conto Interno options`);
+      return options;
+    } catch (error) {
+      console.error('? Error fetching Conto Interno options:', error.message);
+      throw new Error(extractErrorMessage(error));
     }
   },
 };

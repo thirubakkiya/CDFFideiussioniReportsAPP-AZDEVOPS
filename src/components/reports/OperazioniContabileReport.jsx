@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Box,
   TextField,
@@ -32,31 +32,96 @@ import { formatDateForApi } from '../../utils/dateUtils';
 const ROWS_PER_PAGE = 10;
 
 const COLUMNS = [
-  { header: 'Numero Ordine', key: 'numeroOrdine', width: '10%' },
-  { header: 'Numero Conto', key: 'numeroConto', width: '12%' },
-  { header: 'Data', key: 'data', width: '10%' },
-  { header: 'Divisa', key: 'divisa', width: '8%' },
-  { header: 'Importo', key: 'importo', width: '12%' },
-  { header: 'Importo Archivio', key: 'importoArchivio', width: '12%' },
-  { header: 'Saldo', key: 'saldo', width: '10%' },
-  { header: 'Data Fine', key: 'dataFine', width: '10%' },
-  { header: 'Natura', key: 'natura', width: '8%' },
+  { header: 'Numero Garanzia', key: 'numeroGaranzia', width: '5%' },
+  { header: 'Conto Addebito', key: 'contoAddebito', width: '6%' },
+  { header: 'Stato', key: 'stato', width: '4%' },
+  { header: 'Esito', key: 'esito', width: '4%' },
+  { header: 'Codice Operazione', key: 'codiceOp', width: '5%' },
+  { header: 'Tipo Operazione', key: 'tipoOperazione', width: '6%' },
+  { header: 'Data Esecuzione', key: 'dataEsecuzione', width: '5%' },
+  { header: 'Utente', key: 'utente', width: '4%' },
+  { header: 'Comm. Calcolata', key: 'commCalcolata', width: '5%' },
+  { header: 'Data Scadenza', key: 'dataScadenza', width: '5%' },
+  { header: 'Data Decorrenza', key: 'dataDecorrenza', width: '5%' },
+  { header: 'Data Di Prossima', key: 'dataProssimoAddebito', width: '6%' },
+  { header: 'Competenza Da', key: 'competenzaDa', width: '5%' },
+  { header: 'Competenza A', key: 'competenzaA', width: '5%' },
+  { header: 'Tipo Scadenza', key: 'tipoScadenza', width: '5%' },
+  { header: 'Id Bibo', key: 'idBibo', width: '4%' },
+  { header: 'Id Operazione', key: 'idOpCont', width: '5%' },
+  { header: 'Numero Operazione', key: 'numeroOperazione', width: '6%' },
+  { header: 'Xml Contabile', key: 'xmlCont', width: '4%' },
 ];
 
 export default function OperazioniContabileReport({ idBanca }) {
   const [loading, setLoading] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [data, setData] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pageIndex, setPageIndex] = useState(1);
+  const [contoInternoOptions, setContoInternoOptions] = useState([]);
+  const [statoOptions, setStatoOptions] = useState([]);
+  const [operazioneContabileOptions, setOperazioneContabileOptions] = useState([]);
 
   // Form fields - EXACT from Figma design
   const [dataEsecuzione, setDataEsecuzione] = useState('');
   const [ottoCifre, setOttoCifre] = useState('');
   const [numeroGaranzia, setNumeroGaranzia] = useState('');
-  const [stato, setStato] = useState('Esaurito');
+  const [stato, setStato] = useState('Tutti');
   const [operazioneContabile, setOperazioneContabile] = useState('Tutti');
   const [contoInterno, setContoInterno] = useState('Tutti');
+
+  const resolvedBancaId = Number(idBanca || localStorage.getItem('idBanca') || '1');
+
+  // Normalize child param options
+  const normalizeChildParamOption = useCallback((item) => ({
+    key: String(item?.key || '').trim(),
+    value: String(item?.value || '').trim(),
+  }), []);
+
+  // Load all options when component mounts or bancaId changes
+  useEffect(() => {
+    const loadAllOptions = async () => {
+      setOptionsLoading(true);
+      try {
+        // Load Conto Interno options - NO SORTING, display as-is from API
+        const contoOptions = await ReportsService.getContoInternoOptions(resolvedBancaId);
+        setContoInternoOptions(contoOptions || []);
+
+        // Load Stato options (parent key: FS_OP_CONT_STATO) - NO SORTING
+        const statoParams = await ReportsService.getChildParams({
+          parentKey: 'FS_OP_CONT_STATO',
+          idBanca: resolvedBancaId,
+        });
+        const normalizedStatoOptions = (statoParams || [])
+          .map(normalizeChildParamOption);
+        setStatoOptions(normalizedStatoOptions);
+        // Default to 'Tutti' - backend will handle this as all records
+        setStato('Tutti');
+
+        // Load Operazione Contabile options (parent key: FS_CODICE_OP) - NO SORTING
+        const opParams = await ReportsService.getChildParams({
+          parentKey: 'FS_CODICE_OP',
+          idBanca: resolvedBancaId,
+        });
+        const normalizedOpOptions = (opParams || [])
+          .map(normalizeChildParamOption);
+        setOperazioneContabileOptions(normalizedOpOptions);
+        // Default to 'Tutti' - backend will handle this as all records
+        setOperazioneContabile('Tutti');
+      } catch (err) {
+        console.error('Failed to load options:', err);
+        setContoInternoOptions([]);
+        setStatoOptions([]);
+        setOperazioneContabileOptions([]);
+      } finally {
+        setOptionsLoading(false);
+      }
+    };
+
+    loadAllOptions();
+  }, [resolvedBancaId, normalizeChildParamOption]);
 
   const totalPages = Math.max(Math.ceil(data.length / ROWS_PER_PAGE), 1);
   const visibleRows = useMemo(() => {
@@ -65,10 +130,10 @@ export default function OperazioniContabileReport({ idBanca }) {
   }, [data, pageIndex]);
 
   const handleSearch = useCallback(async () => {
-    if (!dataEsecuzione) {
-      setError('Please fill all required fields - Data Esecuzione is mandatory');
+    if (!dataEsecuzione && !ottoCifre && !numeroGaranzia) {
+      setError('Please fill at least one of the required fields: Data Esecuzione, Otto Cifre or Numero Garanzia');
       return;
-    }
+    } 
 
     setLoading(true);
     setError(null);
@@ -76,8 +141,8 @@ export default function OperazioniContabileReport({ idBanca }) {
 
     try {
       // dataEsecuzione is stored as YYYY-MM-DD internally
-      // Convert to dd/MM/yyyy for API
-      const formattedDate = formatDateForApi(dataEsecuzione);
+      // Convert to dd/MM/yyyy for API, only when provided
+      const formattedDate = dataEsecuzione ? formatDateForApi(dataEsecuzione) : '';
       console.log(`?? Date in API format: ${formattedDate}`);
       
       const request = {
@@ -92,9 +157,12 @@ export default function OperazioniContabileReport({ idBanca }) {
 
       console.log('?? Sending request to API:', request);
       const result = await ReportsService.getOperazioniContabileReport(request);
-      setData(result || []);
+      
+      // Extract payload array from API response structure
+      const reportData = result?.payload || result || [];
+      setData(reportData);
 
-      if ((!result || result.length === 0)) {
+      if ((!reportData || reportData.length === 0)) {
         setError('No data found for the selected criteria');
       }
     } catch (err) {
@@ -140,7 +208,7 @@ export default function OperazioniContabileReport({ idBanca }) {
         {/* Main Content */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Header with "Crediti Di Firma" */}
-          <Paper
+          {/* <Paper
             sx={{
               p: 2,
               backgroundColor: '#e8f0ff',
@@ -153,7 +221,7 @@ export default function OperazioniContabileReport({ idBanca }) {
             }}
           >
             Crediti Di Firma
-          </Paper>
+          </Paper> */}
 
           {/* Form Section */}
           <Paper
@@ -169,81 +237,87 @@ export default function OperazioniContabileReport({ idBanca }) {
               Operazioni Contabile
             </Box>
 
-            {/* 2-Column Form Grid - EXACT from Figma */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 3, mb: 3 }}>
-              {/* Left Column - Text and Date Inputs */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField
-                  label="* Data Esecuzione"
-                  type="date"
-                  value={dataEsecuzione}
-                  onChange={(e) => setDataEsecuzione(e.target.value)}
-                  size="small"
-                  fullWidth
-                  variant="outlined"
-                  InputLabelProps={{ shrink: true }}
-                />
-                <TextField
-                  label="Otto Cifre"
-                  type="text"
-                  value={ottoCifre}
-                  onChange={(e) => setOttoCifre(e.target.value)}
-                  size="small"
-                  fullWidth
-                  variant="outlined"
-                  inputProps={{ placeholder: '61112866' }}
-                />
-                <TextField
-                  label="Numero Garanzia"
-                  type="text"
-                  value={numeroGaranzia}
-                  onChange={(e) => setNumeroGaranzia(e.target.value)}
-                  size="small"
-                  fullWidth
-                  variant="outlined"
-                  inputProps={{ placeholder: 'I' }}
-                />
-              </Box>
+            {/* Form Grid - 3 columns for compact layout */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, mb: 3 }}>
+              <TextField
+                label="Data Esecuzione"
+                type="date"
+                value={dataEsecuzione}
+                onChange={(e) => setDataEsecuzione(e.target.value)}
+                size="small"
+                fullWidth
+                variant="outlined"
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                label="Otto Cifre"
+                type="text"
+                value={ottoCifre}
+                onChange={(e) => setOttoCifre(e.target.value)}
+                size="small"
+                fullWidth
+                variant="outlined"
+                inputProps={{ placeholder: '61112866' }}
+              />
+              <TextField
+                label="Numero Garanzia"
+                type="text"
+                value={numeroGaranzia}
+                onChange={(e) => setNumeroGaranzia(e.target.value)}
+                size="small"
+                fullWidth
+                variant="outlined"
+                inputProps={{ placeholder: 'I' }}
+              />
 
-              {/* Right Column - Dropdowns */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Stato</InputLabel>
-                  <Select
-                    value={stato}
-                    label="Stato"
-                    onChange={(e) => setStato(e.target.value)} 
-                  >
-                    <MenuItem value="Esaurito">Esaurito</MenuItem>
-                    <MenuItem value="Non Esaurito">Non Esaurito</MenuItem>
-                  </Select>
-                </FormControl>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Operazione Contabile</InputLabel>
-                  <Select
-                    value={operazioneContabile}
-                    label="Operazione Contabile"
-                    onChange={(e) => setOperazioneContabile(e.target.value)}
-                  >
-                    <MenuItem value="Tutti">Tutti</MenuItem>
-                    <MenuItem value="ADDEBITO">ADDEBITO</MenuItem>
-                    <MenuItem value="ACCREDITO">ACCREDITO</MenuItem>
-                    <MenuItem value="RETTIFICA">RETTIFICA</MenuItem>
-                  </Select>
-                </FormControl>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Conto Interno</InputLabel>
-                  <Select
-                    value={contoInterno}
-                    label="Conto Interno"
-                    onChange={(e) => setContoInterno(e.target.value)}
-                  >
-                    <MenuItem value="Tutti">Tutti</MenuItem>
-                    <MenuItem value="Conto1">Conto 1</MenuItem>
-                    <MenuItem value="Conto2">Conto 2</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Stato</InputLabel>
+                <Select
+                  value={stato}
+                  label="Stato"
+                  onChange={(e) => setStato(e.target.value)}
+                  disabled={optionsLoading}
+                >
+                  <MenuItem value="Tutti">Tutti</MenuItem>
+                  {statoOptions.map((option) => (
+                    <MenuItem key={option.key} value={option.key}>
+                      {option.value}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Operazione Contabile</InputLabel>
+                <Select
+                  value={operazioneContabile}
+                  label="Operazione Contabile"
+                  onChange={(e) => setOperazioneContabile(e.target.value)}
+                  disabled={optionsLoading}
+                >
+                  <MenuItem value="Tutti">Tutti</MenuItem>
+                  {operazioneContabileOptions.map((option) => (
+                    <MenuItem key={option.key} value={option.key}>
+                      {option.value}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Conto Interno</InputLabel>
+                <Select
+                  value={contoInterno}
+                  label="Conto Interno"
+                  onChange={(e) => setContoInterno(e.target.value)}
+                  disabled={optionsLoading}
+                >
+                  <MenuItem value="Tutti">Tutti</MenuItem>
+                  {contoInternoOptions.map((option) => (
+                    <MenuItem key={option} value={option}>
+                      {option}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Box>
 
             {/* Action Buttons - EXACT from Figma */}
@@ -349,7 +423,7 @@ export default function OperazioniContabileReport({ idBanca }) {
                               color: '#26406f',
                             }}
                           >
-                            {row[column.key] || '-'}
+                            {row[column.key] || ''}
                           </TableCell>
                         ))}
                       </TableRow>
